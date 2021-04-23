@@ -7,6 +7,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
+
 def array_softmax(Q, T):
     """Array based calculation of softmax probabilities for binary choices.
     Q: Action values - array([n_trials,2])
@@ -41,7 +42,102 @@ def softmax(Q, T):
     return expQT / expQT.sum()
 
 
-def session_likelihood(params, return_q=False):
+def latent_state_simulate(params, r_states, n_trials, rprob):
+
+    p_r, p_lapse = params
+    good_prob = 0.8
+
+    p_1 = 0.5  # Probability world is in state 1.
+    p_all = np.zeros(n_trials + 1)
+    p_all[0] = p_1
+    p_o_1 = np.array(
+        [
+            [
+                good_prob,
+                1 - good_prob,
+            ],  # Probability of observed outcome given world in state 1.
+            [1 - good_prob, good_prob],
+        ]
+    )  # Indicies:  p_o_1[second_step, outcome]
+
+    p_o_0 = 1 - p_o_1  # Probability of observed outcome given world in state 0.
+
+    choices, second_steps, outcomes = (
+        np.zeros(n_trials, int),
+        np.zeros(n_trials, int),
+        np.zeros(n_trials, int),
+    )
+
+    for i in range(n_trials):
+
+        # Generate trial events.
+        c = s = int((p_1 > 0.5) == (random() > p_lapse))
+        o = int(random() <= rprob) if c == r_states[i] else int(random() > rprob)
+
+        # Bayesian update of state probabilties given observed outcome.
+        p_1 = p_o_1[s, o] * p_1 / (p_o_1[s, o] * p_1 + p_o_0[s, o] * (1 - p_1))
+        # Update of state probabilities due to possibility of block reversal.
+        p_1 = (1 - p_r) * p_1 + p_r * (1 - p_1)
+        p_all[i + 1] = p_1
+        choices[i], second_steps[i], outcomes[i] = (c, s, o)
+
+    return choices, second_steps, outcomes, p_all
+
+
+def latent_state_session_likelihood(params, results, return_q=False):
+    n_trials = results.shape[0]
+    # Unpack trial events.
+    choices, second_steps, outcomes = (
+        results["choices"].astype(int),
+        results["second_steps"].astype(int),
+        results["outcomes"].astype(int),
+    )
+
+    # Unpack parameters.
+    p_r, p_lapse = params
+    good_prob = 0.8
+
+    p_o_1 = np.array(
+        [
+            [
+                good_prob,
+                1 - good_prob,
+            ],  # Probability of observed outcome given world in state 1.
+            [1 - good_prob, good_prob],
+        ]
+    )  # Indicies:  p_o_1[second_step, outcome]
+
+    p_o_0 = 1 - p_o_1  # Probability of observed outcome given world in state 0.
+
+    p_1 = np.zeros(n_trials + 1)  # Probability world is in state 1.
+    p_1[0] = 0.5
+
+    for i, (c, s, o) in enumerate(
+        zip(choices, second_steps, outcomes)
+    ):  # loop over trials.
+
+        # Bayesian update of state probabilties given observed outcome.
+        p_1[i + 1] = (
+            p_o_1[s, o] * p_1[i] / (p_o_1[s, o] * p_1[i] + p_o_0[s, o] * (1 - p_1[i]))
+        )
+        # Update of state probabilities due to possibility of block reversal.
+        p_1[i + 1] = (1 - p_r) * p_1[i + 1] + p_r * (1 - p_1[i + 1])
+
+    # Evaluate choice probabilities and likelihood.
+    choice_probs = np.zeros([n_trials + 1, 2])
+    choice_probs[:, 1] = (p_1 > 0.5) * (1 - p_lapse) + (p_1 <= 0.5) * p_lapse
+    choice_probs[:, 0] = 1 - choice_probs[:, 1]
+    trial_log_likelihood = protected_log(choice_probs[np.arange(n_trials), choices])
+    session_log_likelihood = np.sum(trial_log_likelihood)
+
+    if return_q:
+        return -session_log_likelihood, choice_probs
+    else:
+        return -session_log_likelihood
+
+
+def RL_session_likelihood(params, results, return_q=False):
+    n_trials = results.shape[0]
     # Unpack trial events.
     choices, second_steps, outcomes = (
         results["choices"].astype(int),
@@ -106,8 +202,7 @@ def session_likelihood(params, return_q=False):
         return -session_log_likelihood
 
 
-def simulate(params, r_states, n_trials, rprob):
-
+def RL_simulate(params, r_states, n_trials, rprob):
     alpha_td, b1, b2, b3 = params
     alpha_qlearning = b4 = 0
     #     alpha_qlearning, b2, b3, b4 = params
@@ -214,9 +309,10 @@ def before_after_chg_accuracy(results, choices_pred):
         ticks=range(1 + buffer_length * 2),
         labels=np.arange(-buffer_length, buffer_length + 1),
     )
-    plt.xlabel("before or after change points (0 is the start of the later state)")
+    plt.xlabel("before/after change points (0 is the start of the later state)")
     plt.ylabel("average accuracy")
     plt.title(label="before and after state transition accuracy")
+    plt.show()
 
 
 def do_logistic_regression(L, rwds, actions, ax, method="rwd_choice"):
