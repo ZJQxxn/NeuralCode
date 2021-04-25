@@ -79,7 +79,7 @@ def latent_state_simulate(params, r_states, n_trials, rprob):
         # Update of state probabilities due to possibility of block reversal.
         p_1 = (1 - p_r) * p_1 + p_r * (1 - p_1)
         p_all[i + 1] = p_1
-        choices[i], second_steps[i], outcomes[i] = (c, s, o)
+        choices[i], second_steps[i], outcomes[i] = (c, s, o) # TODO： why c == s ?
 
     return choices, second_steps, outcomes, p_all
 
@@ -119,7 +119,7 @@ def latent_state_session_likelihood(params, results, return_q=False):
         # Bayesian update of state probabilties given observed outcome.
         p_1[i + 1] = (
             p_o_1[s, o] * p_1[i] / (p_o_1[s, o] * p_1[i] + p_o_0[s, o] * (1 - p_1[i]))
-        )
+        ) #TODO: why use p_o_1?
         # Update of state probabilities due to possibility of block reversal.
         p_1[i + 1] = (1 - p_r) * p_1[i + 1] + p_r * (1 - p_1[i + 1])
 
@@ -177,7 +177,10 @@ def RL_session_likelihood(params, results, return_q=False):
         Q_td[c, ps, po] = (1.0 - alpha_td) * Q_td[c, ps, po] + alpha_td * o
         Q_qlearning[c, ps, po] = Q_qlearning[c, ps, po] + alpha_qlearning * (
             o - Q_qlearning[c, ps, po]
-        )
+        ) #TODO Q(1) here? why alpha_learning is set to 0 here? why not use alpha_td here?
+        # Q_qlearning[c, ps, po] = Q_qlearning[c, ps, po] + alpha_td * (
+        #     o - Q_qlearning[c, ps, po]
+        # )
 
         ps, po = s, o
 
@@ -360,7 +363,7 @@ def do_logistic_regression(L, rwds, actions, ax, method="rwd_choice"):
     model.fit(X_train, y_train)
 
     pred = model.predict(X_test)
-    print("accuracy:", accuracy_score(y_test, pred))
+    print("{} accuracy:".format(method), accuracy_score(y_test, pred))
     pd.DataFrame(model.coef_, columns=X.columns).T.rename(columns={0: "weight"}).plot(
         ax=ax, marker="o"
     )
